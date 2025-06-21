@@ -1,43 +1,43 @@
-from flask import Flask, request, send_file, jsonify
-from flask_cors import CORS
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
 import gridfs
 import io
 import os
 
-app = Flask(__name__)
-CORS(app)  # Enable CORS
+app = FastAPI()
 
-# MongoDB Setup
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Change to specific domains in prod
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# MongoDB setup
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 client = MongoClient(MONGO_URI)
 db = client["PDFDatabase"]
 fs = gridfs.GridFS(db)
 
-# Upload PDF Endpoint
-@app.route("/upload", methods=["POST"])
-def upload_pdf():
-    if "pdf" not in request.files:
-        return jsonify({"error": "No PDF part in the request"}), 400
+@app.post("/upload")
+async def upload_pdf(pdf: UploadFile = File(...)):
+    if not pdf.filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a PDF.")
 
-    file = request.files["pdf"]
-    if file.filename == "":
-        return jsonify({"error": "No selected file"}), 400
-
-    # Optional: Remove previous PDFs to keep only the latest
+    # Clear existing files
     for old_file in fs.find():
         fs.delete(old_file._id)
 
-    fs.put(file, filename=file.filename)
-    return jsonify({"message": "PDF uploaded successfully"}), 200
+    fs.put(pdf.file, filename=pdf.filename)
+    return {"message": "PDF uploaded successfully"}
 
-# Fetch Latest PDF Endpoint
-@app.route("/latest-pdf", methods=["GET"])
+@app.get("/latest-pdf")
 def get_latest_pdf():
     latest = fs.find().sort("uploadDate", -1).limit(1)
     for file in latest:
-        return send_file(io.BytesIO(file.read()), mimetype="application/pdf")
-    return jsonify({"error": "No PDF found"}), 404
-
-if __name__ == "__main__":
-    app.run(debug=True)
+        return StreamingResponse(io.BytesIO(file.read()), media_type="application/pdf")
+    raise HTTPException(status_code=404, detail="No PDF found")
