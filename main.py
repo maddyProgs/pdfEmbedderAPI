@@ -7,7 +7,12 @@ import io
 import os
 import logging
 from datetime import datetime
+import time
 from typing import Optional
+from dotenv import load_dotenv  # Add this import
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +37,55 @@ app.add_middleware(
     expose_headers=["Content-Disposition"]
 )
 
+# MongoDB connection with multiple configuration options
+def get_mongo_client():
+    # Try different ways to get the connection string
+    MONGO_URI = (
+        os.getenv("MONGO_URI") or                  # Render environment variable
+        os.getenv("MONGODB_URI") or                # Common alternative name
+        "mongodb://localhost:27017/PDFDatabase"    # Local fallback
+    )
+    
+    if not MONGO_URI:
+        logger.error("No MongoDB connection string found")
+        raise RuntimeError("MongoDB connection string not configured")
+
+    max_retries = 3
+    retry_delay = 2  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            client = MongoClient(
+                MONGO_URI,
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=10000,
+                socketTimeoutMS=10000,
+                retryWrites=True,
+                retryReads=True
+            )
+            # Test the connection
+            client.admin.command('ping')
+            logger.info(f"Connected to MongoDB at {MONGO_URI.split('@')[-1]}")
+            return client
+        except Exception as e:
+            logger.warning(f"Attempt {attempt + 1} failed to connect to MongoDB: {str(e)}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                continue
+            logger.error("All connection attempts failed")
+            raise
+
+try:
+    client = get_mongo_client()
+    db = client["PDFDatabase"]
+    fs = gridfs.GridFS(db)
+    logger.info("MongoDB initialized successfully")
+except Exception as e:
+    logger.error("Failed to initialize MongoDB connection", exc_info=True)
+    # Don't crash the app - we'll handle it in the endpoints
+    client = None
+    fs = None
+
 # Request logging middleware
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -55,28 +109,11 @@ async def log_requests(request: Request, call_next):
     
     return response
 
-# MongoDB setup with error handling
-try:
-    MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-    client = MongoClient(
-        MONGO_URI,
-        serverSelectionTimeoutMS=5000,  # 5 second timeout
-        connectTimeoutMS=10000,
-        socketTimeoutMS=10000
-    )
-    # Test the connection
-    client.admin.command('ping')
-    logger.info("Successfully connected to MongoDB!")
-    
-    db = client["PDFDatabase"]
-    fs = gridfs.GridFS(db)
-    
-except Exception as e:
-    logger.error("MongoDB connection error:", exc_info=True)
-    raise RuntimeError("Failed to connect to MongoDB") from e
-
 @app.post("/upload")
 async def upload_pdf(pdf: UploadFile = File(...)):
+    if not client:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
     try:
         logger.info(f"Upload request received for file: {pdf.filename}")
         
@@ -114,6 +151,9 @@ async def upload_pdf(pdf: UploadFile = File(...)):
 
 @app.get("/latest-pdf")
 def get_latest_pdf():
+    if not client:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
     try:
         logger.info("Fetching latest PDF request received")
         
@@ -146,12 +186,15 @@ def get_latest_pdf():
 @app.get("/health")
 async def health_check():
     try:
+        if not client:
+            return {"status": "unhealthy", "database": "not connected"}
+        
         # Check MongoDB connection
         client.admin.command('ping')
         return {"status": "healthy", "database": "connected"}
     except Exception as e:
         logger.error("Health check failed", exc_info=True)
-        raise HTTPException(status_code=503, detail="Service unavailable")
+        return {"status": "unhealthy", "database": "connection failed"}
 
 # Additional endpoint for debugging CORS
 @app.options("/{path:path}")
