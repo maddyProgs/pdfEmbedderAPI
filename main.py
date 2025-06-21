@@ -8,17 +8,20 @@ import os
 import logging
 from datetime import datetime
 import time
-from typing import Optional
-from dotenv import load_dotenv  # Add this import
 
-# Load environment variables from .env file
-load_dotenv()
+# Try to load .env file but don't fail if not available
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # Not critical for production
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
 
 # Enhanced CORS configuration
 origins = [
