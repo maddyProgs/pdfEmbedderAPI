@@ -2,7 +2,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
-import gridfs
+from gridfs import GridFS 
 import io
 import os
 import logging
@@ -81,7 +81,7 @@ def get_mongo_client():
 try:
     client = get_mongo_client()
     db = client["PDFDatabase"]
-    fs = gridfs.GridFS(db)
+    fs = GridFS(db)  
     logger.info("MongoDB initialized successfully")
 except Exception as e:
     logger.error("Failed to initialize MongoDB connection", exc_info=True)
