@@ -149,10 +149,13 @@ async def get_latest_pdf():
         }
         
         return StreamingResponse(
-            io.BytesIO(file.read()),
-            media_type="application/pdf",
-            headers=headers
-        )
+        io.BytesIO(file.read()),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"inline; filename={file.filename}",
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
+    )
     except Exception as e:
         logger.error(f"PDF retrieval failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
