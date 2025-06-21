@@ -8,14 +8,23 @@ import os
 
 app = FastAPI()
 
-# CORS
+# Enhanced CORS configuration
+origins = [
+    "https://currencychronicle.in",
+    "http://currencychronicle.in",
+    "https://www.currencychronicle.in",
+    "http://www.currencychronicle.in",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change to specific domains in prod
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"]  # Important for file downloads
 )
+
 
 # MongoDB setup
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
